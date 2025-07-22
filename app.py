@@ -300,8 +300,10 @@ def admin_panel():
 
     with tab4:
         st.subheader("💾 Экспорт данных")
+        
+        # Excel
         excel_data = export_results_to_excel()
-        if excel_data:
+        if excel_
             st.download_button(
                 label="Скачать Excel",
                 data=excel_data,
@@ -309,16 +311,17 @@ def admin_panel():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-       pdf_data = generate_pdf_report()
-if pdf_
-    st.download_button(
-        label="Скачать PDF-отчёт",
-        data=pdf_data,
-        file_name="отчет.pdf",
-        mime="application/pdf"
-    )
-else:
-    st.warning("Не удалось сгенерировать PDF-отчёт (возможно, не загружен шрифт DejaVuSans.ttf)")
+        # PDF
+        pdf_data = generate_pdf_report()
+        if pdf_
+            st.download_button(
+                label="Скачать PDF-отчёт",
+                data=pdf_data,
+                file_name="отчет.pdf",
+                mime="application/pdf"
+            )
+        else:
+            st.info("PDF-отчёт недоступен (проверьте наличие файла DejaVuSans.ttf)")
 
     with tab5:
         upload_new_data()
