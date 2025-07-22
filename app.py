@@ -6,6 +6,7 @@ import json
 import os
 import hashlib
 from datetime import datetime, timedelta
+from io import BytesIO
 
 # --- Настройки ---
 DATA_FILE = 'test_teoriya.xlsx'
@@ -103,19 +104,28 @@ def save_result(user, score, total, correct_count, results, time_used):
         json.dump(all_results, f, ensure_ascii=False, indent=2)
 
 
+# --- Загрузка результатов ---
+def load_results():
+    if not os.path.exists(RESULTS_FILE):
+        return []
+    with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
+        try:
+            return json.load(f)
+        except:
+            return []
+
+
 # --- Анализ результатов ---
 def analyze_results():
-    if not os.path.exists(RESULTS_FILE):
+    results = load_results()
+    if not results:
         st.info("Нет данных для анализа.")
         return
-
-    with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
 
     stats = {}
     section_stats = {}
 
-    for session in data:
+    for session in results:
         for res in session['results']:
             q_num = res['num']
             sec = res['section']
@@ -133,7 +143,6 @@ def analyze_results():
             if res['is_correct']:
                 section_stats[sec]['correct'] += 1
 
-    # Самые сложные вопросы
     st.subheader("🔥 Самые сложные вопросы (<70%)")
     difficult = []
     for q, s in stats.items():
@@ -144,7 +153,6 @@ def analyze_results():
     for q, p, t in difficult[:10]:
         st.write(f"**{q}**: {p:.1f}% ({t} ответов)")
 
-    # По разделам
     st.subheader("📊 Эффективность по разделам")
     for sec, s in section_stats.items():
         perc = s['correct'] / s['total'] * 100
@@ -169,16 +177,91 @@ def get_sampled_questions(questions):
     return sampled
 
 
+# --- Экспорт в Excel ---
+def export_results_to_excel():
+    results = load_results()
+    if not results:
+        st.warning("Нет результатов для экспорта.")
+        return None
+
+    data = []
+    for session in results:
+        for res in session['results']:
+            data.append({
+                'Пользователь': session['user'],
+                'Дата': session['timestamp'],
+                'Номер вопроса': res['num'],
+                'Правильно': 'Да' if res['is_correct'] else 'Нет',
+                'Раздел': res['section']
+            })
+
+    df = pd.DataFrame(data)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Результаты')
+    return output.getvalue()
+
+
+# --- Админ-панель ---
+def admin_panel():
+    st.title("🔐 Админ-панель")
+
+    tab1, tab2, tab3, tab4 = st.tabs(["Пользователи", "Результаты", "Анализ", "Экспорт"])
+
+    with tab1:
+        st.subheader("📋 Пользователи")
+        users = load_users()
+        for user in users:
+            col1, col2 = st.columns([4, 1])
+            col1.write(f"👤 {user}")
+            if user != "admin":
+                if col2.button("Удалить", key=f"del_{user}"):
+                    del users[user]
+                    save_users(users)
+                    st.success(f"Пользователь {user} удалён")
+                    st.rerun()
+
+    with tab2:
+        st.subheader("📊 Все результаты")
+        results = load_results()
+        if not results:
+            st.info("Нет результатов")
+        else:
+            df = pd.DataFrame([
+                {
+                    'Пользователь': r['user'],
+                    'Дата': r['timestamp'][:16],
+                    'Результат': f"{r['correct']}/{r['total']} ({r['score']:.1f}%)",
+                    'Время': r['time_used']
+                } for r in results
+            ])
+            st.dataframe(df, use_container_width=True)
+
+    with tab3:
+        analyze_results()
+
+    with tab4:
+        st.subheader("💾 Экспорт данных")
+        excel_data = export_results_to_excel()
+        if excel_data:
+            st.download_button(
+                label="Скачать результаты в Excel",
+                data=excel_data,
+                file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.info("Нет данных для экспорта")
+
+
 # --- Главное приложение ---
 def main():
     st.set_page_config(page_title="Тест по оценке недвижимости", layout="centered")
-    st.title("📘 Тестирование по оценке недвижимости")
 
     if 'logged_in' not in st.session_state:
         st.session_state.update({
             'logged_in': False,
             'user': None,
-            'page': 'login',
             'test_started': False,
             'start_time': None,
             'end_time': None,
@@ -190,10 +273,20 @@ def main():
     if not st.session_state.logged_in:
         show_auth()
     else:
+        if st.session_state.user == "admin":
+            show_admin_sidebar()
         test_interface()
 
 
-# --- Авторизация и регистрация ---
+# --- Сайдбар для админа ---
+def show_admin_sidebar():
+    st.sidebar.title("Админ")
+    if st.sidebar.button("🔐 Админ-панель"):
+        st.session_state.page = "admin"
+        st.rerun()
+
+
+# --- Авторизация ---
 def show_auth():
     tab1, tab2 = st.tabs(["🔐 Вход", "📝 Регистрация"])
 
@@ -205,8 +298,8 @@ def show_auth():
 
 def login():
     st.header("Авторизация")
-    login_input = st.text_input("Логин", key="login_login")
-    password = st.text_input("Пароль", type="password", key="login_pass")
+    login_input = st.text_input("Логин")
+    password = st.text_input("Пароль", type="password")
 
     if st.button("Войти"):
         users = load_users()
@@ -243,6 +336,13 @@ def register():
 
 # --- Интерфейс теста ---
 def test_interface():
+    if st.session_state.get('page') == 'admin':
+        admin_panel()
+        if st.button("◀️ Вернуться к тесту"):
+            st.session_state.page = None
+            st.rerun()
+        return
+
     questions = load_data()
     if not questions:
         st.error("Не удалось загрузить вопросы.")
@@ -251,8 +351,6 @@ def test_interface():
     st.sidebar.write(f"👤 {st.session_state.user}")
 
     mode = st.sidebar.radio("Режим", ["Все вопросы", "По 10 из каждого раздела"])
-    
-    # Настройка таймера
     st.sidebar.subheader("⏱️ Таймер")
     timer_enabled = st.sidebar.checkbox("Включить таймер", value=True)
     duration = 30
@@ -272,6 +370,7 @@ def test_interface():
             st.session_state.end_time = None
         st.session_state.test_questions = get_sampled_questions(questions) if mode == "По 10 из каждого раздела" else questions.copy()
         st.session_state.answers = {}
+        st.session_state.page = None
         st.rerun()
 
     if st.sidebar.button("📊 Анализ результатов"):
@@ -288,22 +387,20 @@ def test_interface():
         st.info("Выберите режим и нажмите «Начать тест»")
 
 
-# --- Прохождение теста с опциональным таймером ---
+# --- Прохождение теста с таймером ---
 def run_test_with_timer():
     st.header(f"📝 Тест: {len(st.session_state.test_questions)} вопросов")
 
-    # Проверка времени
     if st.session_state.timer_enabled:
         time_left = st.session_state.end_time - datetime.now()
         if time_left.total_seconds() <= 0:
-            st.warning("⏰ Время вышло! Тест завершён автоматически.")
+            st.warning("⏰ Время вышло!")
             finish_test()
             return
 
         mins, secs = divmod(time_left.seconds, 60)
         st.info(f"Осталось времени: **{mins:02d}:{secs:02d}**")
 
-        # Автообновление каждую секунду
         st.markdown("""
         <script>
         setTimeout(function() {
@@ -312,7 +409,6 @@ def run_test_with_timer():
         </script>
         """, unsafe_allow_html=True)
 
-    # Отображение вопросов
     user_answers = st.session_state.answers
     for i, q in enumerate(st.session_state.test_questions):
         st.markdown(f"### {i+1}. {q['text']}")
