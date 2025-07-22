@@ -309,14 +309,16 @@ def admin_panel():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        pdf_data = generate_pdf_report()
-        if pdf_data:
-            st.download_button(
-                label="Скачать PDF-отчёт",
-                data=pdf_data,
-                file_name="отчет.pdf",
-                mime="application/pdf"
-            )
+       pdf_data = generate_pdf_report()
+if pdf_
+    st.download_button(
+        label="Скачать PDF-отчёт",
+        data=pdf_data,
+        file_name="отчет.pdf",
+        mime="application/pdf"
+    )
+else:
+    st.warning("Не удалось сгенерировать PDF-отчёт (возможно, не загружен шрифт DejaVuSans.ttf)")
 
     with tab5:
         upload_new_data()
