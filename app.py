@@ -298,7 +298,7 @@ def admin_panel():
     with tab4:
         st.subheader("💾 Экспорт данных")
         excel_data = export_results_to_excel()
-        if excel_data
+        if excel_data:
             st.download_button(
                 label="Скачать Excel",
                 data=excel_data,
