@@ -7,6 +7,7 @@ import os
 import hashlib
 from datetime import datetime, timedelta
 from io import BytesIO
+from fpdf import FPDF
 
 # --- Настройки ---
 DATA_FILE = 'test_teoriya.xlsx'
@@ -150,14 +151,20 @@ def analyze_results():
         if perc < 70:
             difficult.append((q, perc, s['total']))
     difficult.sort(key=lambda x: x[1])
-    for q, p, t in difficult[:10]:
-        st.write(f"**{q}**: {p:.1f}% ({t} ответов)")
+    if difficult:
+        df_diff = pd.DataFrame(difficult, columns=["Номер", "Правильно, %", "Всего ответов"])
+        st.dataframe(df_diff, use_container_width=True)
+    else:
+        st.write("Нет особенно сложных вопросов.")
 
     st.subheader("📊 Эффективность по разделам")
+    df_sec = []
     for sec, s in section_stats.items():
         perc = s['correct'] / s['total'] * 100
-        st.progress(int(perc))
-        st.write(f"{sec}: **{perc:.1f}%** ({s['correct']}/{s['total']})")
+        df_sec.append({"Раздел": sec, "Процент": perc, "Правильно": s['correct'], "Всего": s['total']})
+    df_sec = pd.DataFrame(df_sec)
+    st.bar_chart(df_sec.set_index("Раздел")["Процент"])
+    st.dataframe(df_sec, use_container_width=True)
 
 
 # --- Отбор по 10 вопросов из каждого раздела ---
@@ -202,11 +209,51 @@ def export_results_to_excel():
     return output.getvalue()
 
 
+# --- Генерация PDF-отчёта ---
+def generate_pdf_report():
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+
+    pdf.cell(200, 10, txt="Отчёт по результатам тестирования", ln=True, align='C')
+    pdf.ln(10)
+
+    results = load_results()
+    if not results:
+        pdf.cell(200, 10, txt="Нет данных", ln=True)
+    else:
+        pdf.set_font("Arial", size=10)
+        for r in results[-10:]:  # последние 10
+            pdf.cell(200, 8, txt=f"{r['user']} - {r['score']:.1f}% - {r['timestamp'][:10]}", ln=True)
+
+    pdf_output = pdf.output(dest='S').encode('latin1')
+    return pdf_output
+
+
+# --- Загрузка нового файла ---
+def upload_new_data():
+    st.subheader("📤 Обновить базу вопросов")
+    uploaded = st.file_uploader("Загрузите новый Excel-файл", type=["xlsx"])
+    if uploaded:
+        with open(DATA_FILE, "wb") as f:
+            f.write(uploaded.read())
+        st.success("Файл обновлён! Перезапустите приложение.")
+        st.cache_data.clear()
+
+
+# --- Редактор вопросов ---
+def edit_questions():
+    st.subheader("✏️ Редактор вопросов")
+    questions = load_data()
+    df = pd.DataFrame(questions)
+    st.data_editor(df, num_rows="dynamic", key="edited_questions")
+
+
 # --- Админ-панель ---
 def admin_panel():
     st.title("🔐 Админ-панель")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Пользователи", "Результаты", "Анализ", "Экспорт"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Пользователи", "Результаты", "Анализ", "Экспорт", "Вопросы"])
 
     with tab1:
         st.subheader("📋 Пользователи")
@@ -245,13 +292,23 @@ def admin_panel():
         excel_data = export_results_to_excel()
         if excel_data:
             st.download_button(
-                label="Скачать результаты в Excel",
+                label="Скачать Excel",
                 data=excel_data,
                 file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        else:
-            st.info("Нет данных для экспорта")
+
+        pdf_data = generate_pdf_report()
+        st.download_button(
+            label="Скачать PDF-отчёт",
+            data=pdf_data,
+            file_name="отчет.pdf",
+            mime="application/pdf"
+        )
+
+    with tab5:
+        upload_new_data()
+        edit_questions()
 
 
 # --- Главное приложение ---
