@@ -355,10 +355,10 @@ def show_auth():
 
 def login():
     st.header("Авторизация")
-    login_input = st.text_input("Логин")
-    password = st.text_input("Пароль", type="password")
+    login_input = st.text_input("Логин", key="login_username")
+    password = st.text_input("Пароль", type="password", key="login_password")
 
-    if st.button("Войти"):
+    if st.button("Войти", key="login_button"):
         users = load_users()
         hashed = hash_password(password)
         if login_input in users and users[login_input] == hashed:
@@ -372,11 +372,11 @@ def login():
 
 def register():
     st.header("Регистрация")
-    new_login = st.text_input("Логин")
-    new_password = st.text_input("Пароль", type="password")
-    confirm_password = st.text_input("Подтвердите пароль", type="password")
+    new_login = st.text_input("Логин", key="register_username")
+    new_password = st.text_input("Пароль", type="password", key="register_password")
+    confirm_password = st.text_input("Подтвердите пароль", type="password", key="register_confirm_password")
 
-    if st.button("Зарегистрироваться"):
+    if st.button("Зарегистрироваться", key="register_submit"):
         if new_password != confirm_password:
             st.error("Пароли не совпадают")
         elif len(new_password) < 4:
