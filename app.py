@@ -301,7 +301,7 @@ def admin_panel():
 
         # Excel
         excel_data = export_results_to_excel()
-        if excel_
+        if excel_data:
             st.download_button(
                 label="Скачать Excel",
                 data=excel_data,
@@ -311,7 +311,7 @@ def admin_panel():
 
         # PDF
         pdf_data = generate_pdf_report()
-        if pdf_
+        if pdf_data:
             st.download_button(
                 label="Скачать PDF-отчёт",
                 data=pdf_data,
