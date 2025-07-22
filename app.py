@@ -209,25 +209,33 @@ def export_results_to_excel():
     return output.getvalue()
 
 
-# --- Генерация PDF-отчёта ---
+# --- Генерация PDF-отчёта с поддержкой кириллицы ---
 def generate_pdf_report():
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
+    try:
+        pdf = FPDF()
+        pdf.add_page()
 
-    pdf.cell(200, 10, txt="Отчёт по результатам тестирования", ln=True, align='C')
-    pdf.ln(10)
+        # Подключаем шрифт с поддержкой кириллицы
+        pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+        pdf.set_font("DejaVu", size=12)
 
-    results = load_results()
-    if not results:
-        pdf.cell(200, 10, txt="Нет данных", ln=True)
-    else:
-        pdf.set_font("Arial", size=10)
-        for r in results[-10:]:  # последние 10
-            pdf.cell(200, 8, txt=f"{r['user']} - {r['score']:.1f}% - {r['timestamp'][:10]}", ln=True)
+        pdf.cell(200, 10, txt="Отчёт по результатам тестирования", ln=True, align='C')
+        pdf.ln(10)
 
-    pdf_output = pdf.output(dest='S').encode('latin1')
-    return pdf_output
+        results = load_results()
+        if not results:
+            pdf.cell(200, 10, txt="Нет данных для отчёта", ln=True)
+        else:
+            pdf.set_font("DejaVu", size=10)
+            for r in results[-10:]:
+                line = f"{r['user']} — {r['score']:.1f}% — {r['timestamp'][:10]}"
+                pdf.cell(200, 8, txt=line, ln=True)
+
+        # Возвращаем PDF как байты
+        return pdf.output(dest='S').encode('latin1')
+    except Exception as e:
+        st.error(f"Ошибка генерации PDF: {e}")
+        return None
 
 
 # --- Загрузка нового файла ---
@@ -290,7 +298,7 @@ def admin_panel():
     with tab4:
         st.subheader("💾 Экспорт данных")
         excel_data = export_results_to_excel()
-        if excel_data:
+        if excel_
             st.download_button(
                 label="Скачать Excel",
                 data=excel_data,
@@ -299,12 +307,13 @@ def admin_panel():
             )
 
         pdf_data = generate_pdf_report()
-        st.download_button(
-            label="Скачать PDF-отчёт",
-            data=pdf_data,
-            file_name="отчет.pdf",
-            mime="application/pdf"
-        )
+        if pdf_data:
+            st.download_button(
+                label="Скачать PDF-отчёт",
+                data=pdf_data,
+                file_name="отчет.pdf",
+                mime="application/pdf"
+            )
 
     with tab5:
         upload_new_data()
@@ -407,16 +416,16 @@ def test_interface():
 
     st.sidebar.write(f"👤 {st.session_state.user}")
 
-    mode = st.sidebar.radio("Режим", ["Все вопросы", "По 10 из каждого раздела"])
+    mode = st.sidebar.radio("Режим", ["Все вопросы", "По 10 из каждого раздела"], key="mode_select")
     st.sidebar.subheader("⏱️ Таймер")
-    timer_enabled = st.sidebar.checkbox("Включить таймер", value=True)
+    timer_enabled = st.sidebar.checkbox("Включить таймер", value=True, key="timer_checkbox")
     duration = 30
     if timer_enabled:
-        duration = st.sidebar.slider("Длительность (мин)", 10, 120, 30)
+        duration = st.sidebar.slider("Длительность (мин)", 10, 120, 30, key="timer_slider")
     else:
         st.sidebar.info("Таймер отключен")
 
-    if st.sidebar.button("🚀 Начать тест"):
+    if st.sidebar.button("🚀 Начать тест", key="start_test"):
         st.session_state.test_started = True
         st.session_state.timer_enabled = timer_enabled
         if timer_enabled:
@@ -430,10 +439,10 @@ def test_interface():
         st.session_state.page = None
         st.rerun()
 
-    if st.sidebar.button("📊 Анализ результатов"):
+    if st.sidebar.button("📊 Анализ результатов", key="analyze_results"):
         analyze_results()
 
-    if st.sidebar.button("🚪 Выйти"):
+    if st.sidebar.button("🚪 Выйти", key="logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
@@ -473,7 +482,7 @@ def run_test_with_timer():
         choice = st.radio("Выберите ответ:", options, index=None, key=f"q_{q['num']}", label_visibility="collapsed")
         user_answers[q['num']] = choice
 
-    if st.button("✅ Завершить тест"):
+    if st.button("✅ Завершить тест", key="finish_test"):
         finish_test()
 
 
