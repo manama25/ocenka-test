@@ -212,6 +212,8 @@ def export_results_to_excel():
 # --- Генерация PDF-отчёта с поддержкой кириллицы ---
 def generate_pdf_report():
     try:
+        from fpdf import FPDF
+
         pdf = FPDF()
         pdf.add_page()
 
@@ -231,8 +233,9 @@ def generate_pdf_report():
                 line = f"{r['user']} — {r['score']:.1f}% — {r['timestamp'][:10]}"
                 pdf.cell(200, 8, txt=line, ln=True)
 
-        # Возвращаем PDF как байты
-        return pdf.output(dest='S').encode('latin1')
+        # Возвращаем PDF как байты (БЕЗ .encode('latin1'))
+        return pdf.output(dest='S')
+
     except Exception as e:
         st.error(f"Ошибка генерации PDF: {e}")
         return None
