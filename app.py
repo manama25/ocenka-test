@@ -215,19 +215,15 @@ def generate_pdf_report():
         from fpdf import FPDF
         import os
 
-        # Проверяем, существует ли файл шрифта
         if not os.path.exists("DejaVuSans.ttf"):
-            st.error("❌ Ошибка: файл шрифта `DejaVuSans.ttf` не найден. Загрузите его в репозиторий.")
+            st.error("❌ Файл шрифта `DejaVuSans.ttf` не найден. Загрузите его в репозиторий.")
             return None
 
         pdf = FPDF()
         pdf.add_page()
-
-        # Подключаем шрифт с поддержкой кириллицы
         pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         pdf.set_font("DejaVu", size=12)
 
-        # Заголовок
         pdf.cell(200, 10, txt="Отчёт по результатам тестирования", ln=True, align='C')
         pdf.ln(10)
 
@@ -236,12 +232,12 @@ def generate_pdf_report():
             pdf.cell(200, 10, txt="Нет данных для отчёта", ln=True)
         else:
             pdf.set_font("DejaVu", size=10)
-            for r in results[-10:]:  # последние 10 результатов
+            for r in results[-10:]:
                 line = f"{r['user']} — {r['score']:.1f}% — {r['timestamp'][:10]}"
                 pdf.cell(200, 8, txt=line, ln=True)
 
-        # Возвращаем PDF как байты
-        return pdf.output(dest='S')
+        # Возвращаем байты (без dest='S')
+        return pdf.output()
 
     except Exception as e:
         st.error(f"❌ Ошибка генерации PDF: {e}")
@@ -330,7 +326,7 @@ def admin_panel():
                 mime="application/pdf"
             )
         else:
-            st.warning("📄 PDF-отчёт недоступен. Убедитесь, что файл `DejaVuSans.ttf` загружен в репозиторий.")
+            st.warning("📄 PDF-отчёт недоступен. Убедитесь, что файл `DejaVuSans.ttf` загружен.")
 
     with tab5:
         upload_new_data()
