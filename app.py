@@ -301,32 +301,32 @@ def admin_panel():
     with tab3:
         analyze_results()
 
-    with tab4:
-        st.subheader("💾 Экспорт данных")
+with tab4:
+    st.subheader("💾 Экспорт данных")
 
-        # Экспорт в Excel
-        excel_data = export_results_to_excel()
-        if excel_data is not None:
-            st.download_button(
-                label="Скачать Excel",
-                data=excel_data,
-                file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.info("📊 Нет данных для экспорта в Excel")
+    # Экспорт в Excel
+    excel_data = export_results_to_excel()
+    if excel_data is not None:
+        st.download_button(
+            label="Скачать Excel",
+            data=excel_data,
+            file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.info("📊 Нет данных для экспорта в Excel")
 
-        # Экспорт в PDF
-        pdf_data = generate_pdf_report()
-        if pdf_data is not None:
-            st.download_button(
-                label="Скачать PDF-отчёт",
-                data=pdf_data,
-                file_name="отчет.pdf",
-                mime="application/pdf"
-            )
-        else:
-            st.warning("📄 PDF-отчёт недоступен. Убедитесь, что файл `DejaVuSans.ttf` загружен.")
+    # Экспорт в PDF
+    pdf_data = generate_pdf_report()
+    if pdf_data is not None:
+        st.download_button(
+            label="Скачать PDF-отчёт",
+            data=pdf_data,
+            file_name="отчет.pdf",
+            mime="application/pdf"
+        )
+    else:
+        st.warning("📄 PDF-отчёт недоступен. Убедитесь, что файл `DejaVuSans.ttf` загружен в репозиторий.")
 
     with tab5:
         upload_new_data()
