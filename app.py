@@ -209,7 +209,34 @@ def export_results_to_excel():
     return output.getvalue()
 
 
+# --- Генерация PDF-отчёта с поддержкой кириллицы ---
+def generate_pdf_report():
+    try:
+        pdf = FPDF()
+        pdf.add_page()
 
+        # Подключаем шрифт с поддержкой кириллицы
+        pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+        pdf.set_font("DejaVu", size=12)
+
+        pdf.cell(200, 10, txt="Отчёт по результатам тестирования", ln=True, align='C')
+        pdf.ln(10)
+
+        results = load_results()
+        if not results:
+            pdf.cell(200, 10, txt="Нет данных для отчёта", ln=True)
+        else:
+            pdf.set_font("DejaVu", size=10)
+            for r in results[-10:]:
+                line = f"{r['user']} — {r['score']:.1f}% — {r['timestamp'][:10]}"
+                pdf.cell(200, 8, txt=line, ln=True)
+
+        # Возвращаем PDF как байты (без .encode())
+        return pdf.output(dest='S')
+
+    except Exception as e:
+        st.error(f"Ошибка генерации PDF: {e}")
+        return None
 
 
 # --- Загрузка нового файла ---
@@ -274,7 +301,7 @@ def admin_panel():
 
         # Excel
         excel_data = export_results_to_excel()
-        if excel_data:
+        if excel_
             st.download_button(
                 label="Скачать Excel",
                 data=excel_data,
@@ -284,7 +311,7 @@ def admin_panel():
 
         # PDF
         pdf_data = generate_pdf_report()
-        if pdf_data:
+        if pdf_
             st.download_button(
                 label="Скачать PDF-отчёт",
                 data=pdf_data,
