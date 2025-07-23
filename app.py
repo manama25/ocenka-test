@@ -299,27 +299,27 @@ def admin_panel():
     with tab4:
         st.subheader("💾 Экспорт данных")
 
-        # Excel
-        excel_data = export_results_to_excel()
-        if excel_data is not None:
-            st.download_button(
-                label="Скачать Excel",
-                data=excel_data,
-                file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+# Excel
+excel_data = export_results_to_excel()
+if excel_:
+    st.download_button(
+        label="Скачать Excel",
+        data=excel_data,
+        file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-        # PDF
-        pdf_data = generate_pdf_report()
-        if pdf_data is not None:
-            st.download_button(
-                label="Скачать PDF-отчёт",
-                data=pdf_data,
-                file_name="отчет.pdf",
-                mime="application/pdf"
-            )
-        else:
-            st.info("PDF-отчёт недоступен (проверьте наличие файла DejaVuSans.ttf)")
+# PDF
+pdf_data = generate_pdf_report()
+if pdf_:
+    st.download_button(
+        label="Скачать PDF-отчёт",
+        data=pdf_data,
+        file_name="отчет.pdf",
+        mime="application/pdf"
+    )
+else:
+    st.info("PDF-отчёт недоступен (проверьте наличие файла DejaVuSans.ttf)")
 
     with tab5:
         upload_new_data()
