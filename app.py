@@ -212,10 +212,18 @@ def export_results_to_excel():
 # --- Генерация PDF-отчёта с поддержкой кириллицы ---
 def generate_pdf_report():
     try:
+        from fpdf import FPDF
+        import os
+
+        # Проверяем наличие шрифта
+        if not os.path.exists("DejaVuSans.ttf"):
+            st.error("❌ Файл шрифта `DejaVuSans.ttf` не найден. Загрузите его в репозиторий.")
+            return None
+
         pdf = FPDF()
         pdf.add_page()
 
-        # Подключаем шрифт с поддержкой кириллицы
+        # Подключаем шрифт
         pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         pdf.set_font("DejaVu", size=12)
 
@@ -231,11 +239,11 @@ def generate_pdf_report():
                 line = f"{r['user']} — {r['score']:.1f}% — {r['timestamp'][:10]}"
                 pdf.cell(200, 8, txt=line, ln=True)
 
-        # Возвращаем PDF как байты (без .encode())
+        # Возвращаем PDF как байты
         return pdf.output(dest='S')
 
     except Exception as e:
-        st.error(f"Ошибка генерации PDF: {e}")
+        st.error(f"❌ Ошибка генерации PDF: {e}")
         return None
 
 
