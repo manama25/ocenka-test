@@ -209,9 +209,17 @@ def export_results_to_excel():
     return output.getvalue()
 
 
-# --- Генерация PDF-отчёта с поддержкой кириллицы ---
+# --- Генерация PDF-отчёта с проверкой шрифта ---
 def generate_pdf_report():
     try:
+        from fpdf import FPDF
+        import os
+
+        # Проверяем, существует ли файл шрифта
+        if not os.path.exists("DejaVuSans.ttf"):
+            st.error("❌ Ошибка: файл шрифта `DejaVuSans.ttf` не найден. Загрузите его в репозиторий.")
+            return None
+
         pdf = FPDF()
         pdf.add_page()
 
@@ -219,6 +227,7 @@ def generate_pdf_report():
         pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         pdf.set_font("DejaVu", size=12)
 
+        # Заголовок
         pdf.cell(200, 10, txt="Отчёт по результатам тестирования", ln=True, align='C')
         pdf.ln(10)
 
@@ -227,15 +236,15 @@ def generate_pdf_report():
             pdf.cell(200, 10, txt="Нет данных для отчёта", ln=True)
         else:
             pdf.set_font("DejaVu", size=10)
-            for r in results[-10:]:
+            for r in results[-10:]:  # последние 10 результатов
                 line = f"{r['user']} — {r['score']:.1f}% — {r['timestamp'][:10]}"
                 pdf.cell(200, 8, txt=line, ln=True)
 
-        # Возвращаем PDF как байты (без .encode())
+        # Возвращаем PDF как байты
         return pdf.output(dest='S')
 
     except Exception as e:
-        st.error(f"Ошибка генерации PDF: {e}")
+        st.error(f"❌ Ошибка генерации PDF: {e}")
         return None
 
 
@@ -299,27 +308,29 @@ def admin_panel():
     with tab4:
         st.subheader("💾 Экспорт данных")
 
-# Excel
-excel_data = export_results_to_excel()
-if excel_data is not None:
-    st.download_button(
-        label="Скачать Excel",
-        data=excel_data,
-        file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        # Экспорт в Excel
+        excel_data = export_results_to_excel()
+        if excel_data is not None:
+            st.download_button(
+                label="Скачать Excel",
+                data=excel_data,
+                file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.info("📊 Нет данных для экспорта в Excel")
 
-# PDF
-pdf_data = generate_pdf_report()
-if pdf_data is not None:
-    st.download_button(
-        label="Скачать PDF-отчёт",
-        data=pdf_data,
-        file_name="отчет.pdf",
-        mime="application/pdf"
-    )
-else:
-    st.info("PDF-отчёт недоступен (проверьте наличие файла DejaVuSans.ttf)")
+        # Экспорт в PDF
+        pdf_data = generate_pdf_report()
+        if pdf_data is not None:
+            st.download_button(
+                label="Скачать PDF-отчёт",
+                data=pdf_data,
+                file_name="отчет.pdf",
+                mime="application/pdf"
+            )
+        else:
+            st.warning("📄 PDF-отчёт недоступен. Убедитесь, что файл `DejaVuSans.ttf` загружен в репозиторий.")
 
     with tab5:
         upload_new_data()
