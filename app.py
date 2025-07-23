@@ -7,7 +7,6 @@ import os
 import hashlib
 from datetime import datetime, timedelta
 from io import BytesIO
-from fpdf import FPDF
 
 # --- Настройки ---
 DATA_FILE = 'test_teoriya.xlsx'
@@ -167,6 +166,32 @@ def analyze_results():
     st.dataframe(df_sec, use_container_width=True)
 
 
+# --- Анализ по логинам ---
+def analyze_by_user():
+    st.subheader("🔍 Анализ по логинам")
+    results = load_results()
+    if not results:
+        st.info("Нет результатов тестирования.")
+        return
+
+    users = list(set(r['user'] for r in results))
+    selected_user = st.selectbox("Выберите пользователя", users)
+
+    user_results = [r for r in results if r['user'] == selected_user]
+    st.write(f"**Результаты пользователя: {selected_user}**")
+
+    for i, r in enumerate(user_results, 1):
+        st.markdown(f"### Попытка {i}")
+        st.write(f"📅 Дата: {r['timestamp'][:16]}")
+        st.write(f"📊 Результат: **{r['correct']}/{r['total']} ({r['score']:.1f}%)**")
+        st.write(f"⏱️ Время: {r['time_used']}")
+
+        with st.expander("Разбор ответов"):
+            for res in r['results']:
+                status = "✅" if res['is_correct'] else "❌"
+                st.markdown(f"{status} **{res['num']}**: {res['section']}")
+
+
 # --- Отбор по 10 вопросов из каждого раздела ---
 def get_sampled_questions(questions):
     by_section = {}
@@ -209,41 +234,6 @@ def export_results_to_excel():
     return output.getvalue()
 
 
-# --- Генерация PDF-отчёта с проверкой шрифта ---
-def generate_pdf_report():
-    try:
-        from fpdf import FPDF
-        import os
-
-        if not os.path.exists("DejaVuSans.ttf"):
-            st.error("❌ Файл шрифта `DejaVuSans.ttf` не найден. Загрузите его в репозиторий.")
-            return None
-
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-        pdf.set_font("DejaVu", size=12)
-
-        pdf.cell(200, 10, txt="Отчёт по результатам тестирования", ln=True, align='C')
-        pdf.ln(10)
-
-        results = load_results()
-        if not results:
-            pdf.cell(200, 10, txt="Нет данных для отчёта", ln=True)
-        else:
-            pdf.set_font("DejaVu", size=10)
-            for r in results[-10:]:
-                line = f"{r['user']} — {r['score']:.1f}% — {r['timestamp'][:10]}"
-                pdf.cell(200, 8, txt=line, ln=True)
-
-        # Возвращаем байты (без dest='S')
-        return pdf.output()
-
-    except Exception as e:
-        st.error(f"❌ Ошибка генерации PDF: {e}")
-        return None
-
-
 # --- Загрузка нового файла ---
 def upload_new_data():
     st.subheader("📤 Обновить базу вопросов")
@@ -267,7 +257,9 @@ def edit_questions():
 def admin_panel():
     st.title("🔐 Админ-панель")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Пользователи", "Результаты", "Анализ", "Экспорт", "Вопросы"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "Пользователи", "Результаты", "Анализ", "Экспорт", "Вопросы", "Анализ по логинам"
+    ])
 
     with tab1:
         st.subheader("📋 Пользователи")
@@ -301,36 +293,25 @@ def admin_panel():
     with tab3:
         analyze_results()
 
-with tab4:
-    st.subheader("💾 Экспорт данных")
-
-    # Экспорт в Excel
-    excel_data = export_results_to_excel()
-    if excel_data is not None:
-        st.download_button(
-            label="Скачать Excel",
-            data=excel_data,
-            file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.info("📊 Нет данных для экспорта в Excel")
-
-    # Экспорт в PDF
-    pdf_data = generate_pdf_report()
-    if pdf_data is not None:
-        st.download_button(
-            label="Скачать PDF-отчёт",
-            data=pdf_data,
-            file_name="отчет.pdf",
-            mime="application/pdf"
-        )
-    else:
-        st.warning("📄 PDF-отчёт недоступен. Убедитесь, что файл `DejaVuSans.ttf` загружен в репозиторий.")
+    with tab4:
+        st.subheader("💾 Экспорт данных")
+        excel_data = export_results_to_excel()
+        if excel_data is not None:
+            st.download_button(
+                label="Скачать Excel",
+                data=excel_data,
+                file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.info("📊 Нет данных для экспорта в Excel")
 
     with tab5:
         upload_new_data()
         edit_questions()
+
+    with tab6:
+        analyze_by_user()
 
 
 # --- Главное приложение ---
