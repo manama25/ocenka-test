@@ -333,8 +333,8 @@ def main():
     with col1:
         st.image("logo.png", width=120)  # Убедитесь, что файл в репозитории
     with col2:
-        st.title("Оценка Недвижимости")
-        st.markdown("Центр аттестации и обучения")
+        st.title("Центр кадастровой оценки")
+        st.markdown("Аттестация и обучение")
     st.markdown("---")
 
     if 'logged_in' not in st.session_state:
