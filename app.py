@@ -56,11 +56,18 @@ def load_data():
 # --- Управление пользователями ---
 def load_users():
     if not os.path.exists(USERS_FILE):
+        # Создаём файл с admin:123
         default_users = {"admin": hashlib.sha256("123".encode()).hexdigest()}
         save_users(default_users)
         return default_users
-    with open(USERS_FILE, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        st.error(f"Ошибка чтения users.json: {e}. Восстанавливаем админа.")
+        default_users = {"admin": hashlib.sha256("123".encode()).hexdigest()}
+        save_users(default_users)
+        return default_users
 
 
 def save_users(users):
@@ -94,11 +101,11 @@ def save_result(user, score, total, correct_count, results, time_used):
     }
     all_results = []
     if os.path.exists(RESULTS_FILE):
-        with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
-            try:
+        try:
+            with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
                 all_results = json.load(f)
-            except:
-                pass
+        except (json.JSONDecodeError, IOError):
+            st.warning("Файл results.json повреждён. Создаём новый.")
     all_results.append(result)
     with open(RESULTS_FILE, 'w', encoding='utf-8') as f:
         json.dump(all_results, f, ensure_ascii=False, indent=2)
@@ -108,11 +115,12 @@ def save_result(user, score, total, correct_count, results, time_used):
 def load_results():
     if not os.path.exists(RESULTS_FILE):
         return []
-    with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
-        try:
+    try:
+        with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-        except:
-            return []
+    except (json.JSONDecodeError, IOError):
+        st.warning("Ошибка чтения results.json. Возвращаем пустой список.")
+        return []
 
 
 # --- Анализ результатов ---
@@ -331,7 +339,10 @@ def main():
     # Логотип и заголовок
     col1, col2 = st.columns([1, 3])
     with col1:
-        st.image("logo.png", width=120)  # Убедитесь, что файл в репозитории
+        if os.path.exists("logo.png"):
+            st.image("logo.png", width=120)
+        else:
+            st.markdown("🏢", unsafe_allow_html=True)  # Резервная иконка
     with col2:
         st.title("Центр кадастровой оценки")
         st.markdown("Аттестация и обучение")
