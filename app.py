@@ -7,11 +7,14 @@ import os
 import hashlib
 from datetime import datetime, timedelta
 from io import BytesIO
+import tempfile
+import fcntl
 
 # --- Настройки ---
-DATA_FILE = 'test_teoriya.xlsx'
-USERS_FILE = 'users.json'
-RESULTS_FILE = 'results.json'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(BASE_DIR, 'test_teoriya.xlsx')
+USERS_FILE = os.path.join(BASE_DIR, 'users.json')
+RESULTS_FILE = os.path.join(BASE_DIR, 'results.json')
 
 # --- Загрузка данных ---
 @st.cache_data
@@ -71,8 +74,19 @@ def load_users():
 
 
 def save_users(users):
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+    lock_path = USERS_FILE + '.lock'
+    temp_dir = os.path.dirname(USERS_FILE)
+    try:
+        with open(lock_path, 'w') as lockf:
+            fcntl.flock(lockf, fcntl.LOCK_EX)
+            with tempfile.NamedTemporaryFile('w', delete=False, dir=temp_dir, encoding='utf-8') as tf:
+                json.dump(users, tf, ensure_ascii=False, indent=2)
+                tf.flush()
+                os.fsync(tf.fileno())
+                temp_name = tf.name
+            os.replace(temp_name, USERS_FILE)
+    except Exception as e:
+        st.error(f"Не удалось сохранить пользователей: {e}")
 
 
 def hash_password(password):
@@ -80,12 +94,67 @@ def hash_password(password):
 
 
 def register_user(username, password):
-    users = load_users()
-    if username in users:
-        return False, "Логин занят"
-    users[username] = hash_password(password)
-    save_users(users)
-    return True, "Регистрация успешна!"
+    lock_path = USERS_FILE + '.lock'
+    temp_dir = os.path.dirname(USERS_FILE)
+    try:
+        with open(lock_path, 'w') as lockf:
+            fcntl.flock(lockf, fcntl.LOCK_EX)
+            # Load latest users under the lock
+            if os.path.exists(USERS_FILE):
+                try:
+                    with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                        users = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    users = {"admin": hashlib.sha256("123".encode()).hexdigest()}
+            else:
+                users = {"admin": hashlib.sha256("123".encode()).hexdigest()}
+
+            if username in users:
+                return False, "Логин занят"
+
+            users[username] = hash_password(password)
+
+            # Atomic write under the same lock
+            with tempfile.NamedTemporaryFile('w', delete=False, dir=temp_dir, encoding='utf-8') as tf:
+                json.dump(users, tf, ensure_ascii=False, indent=2)
+                tf.flush()
+                os.fsync(tf.fileno())
+                temp_name = tf.name
+            os.replace(temp_name, USERS_FILE)
+            return True, "Регистрация успешна!"
+    except Exception as e:
+        st.error(f"Не удалось зарегистрировать пользователя: {e}")
+        return False, "Ошибка сохранения"
+
+
+def delete_user(username: str) -> bool:
+    if username == "admin":
+        return False
+    lock_path = USERS_FILE + '.lock'
+    temp_dir = os.path.dirname(USERS_FILE)
+    try:
+        with open(lock_path, 'w') as lockf:
+            fcntl.flock(lockf, fcntl.LOCK_EX)
+            users = {}
+            if os.path.exists(USERS_FILE):
+                try:
+                    with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                        users = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    return False
+            if username not in users:
+                return False
+            del users[username]
+            with tempfile.NamedTemporaryFile('w', delete=False, dir=temp_dir, encoding='utf-8') as tf:
+                json.dump(users, tf, ensure_ascii=False, indent=2)
+                tf.flush()
+                os.fsync(tf.fileno())
+                temp_name = tf.name
+            os.replace(temp_name, USERS_FILE)
+            return True
+    except Exception as e:
+        st.error(f"Не удалось удалить пользователя: {e}")
+        return False
 
 
 # --- Сохранение результатов ---
@@ -100,15 +169,25 @@ def save_result(user, score, total, correct_count, results, time_used):
         'results': results
     }
     all_results = []
-    if os.path.exists(RESULTS_FILE):
-        try:
-            with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
-                all_results = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            st.warning("Файл results.json повреждён. Создаём новый.")
-    all_results.append(result)
-    with open(RESULTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(all_results, f, ensure_ascii=False, indent=2)
+    lock_path = RESULTS_FILE + '.lock'
+    try:
+        with open(lock_path, 'w') as lockf:
+            fcntl.flock(lockf, fcntl.LOCK_EX)
+            if os.path.exists(RESULTS_FILE):
+                try:
+                    with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
+                        all_results = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    st.warning("Файл results.json повреждён. Создаём новый.")
+            all_results.append(result)
+            with tempfile.NamedTemporaryFile('w', delete=False, dir=os.path.dirname(RESULTS_FILE), encoding='utf-8') as tf:
+                json.dump(all_results, tf, ensure_ascii=False, indent=2)
+                tf.flush()
+                os.fsync(tf.fileno())
+                temp_name = tf.name
+            os.replace(temp_name, RESULTS_FILE)
+    except Exception as e:
+        st.error(f"Не удалось сохранить результаты: {e}")
 
 
 # --- Загрузка результатов ---
@@ -281,10 +360,11 @@ def admin_panel():
                 col1.write(f"👤 **{user}**")
                 if user != "admin":
                     if col2.button("🗑️ Удалить", key=f"del_user_{user}"):
-                        del users[user]
-                        save_users(users)
-                        st.success(f"Пользователь `{user}` удалён.")
-                        st.rerun()
+                        if delete_user(user):
+                            st.success(f"Пользователь `{user}` удалён.")
+                            st.rerun()
+                        else:
+                            st.error("Не удалось удалить пользователя")
                 else:
                     col2.write("🔐")
 
