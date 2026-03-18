@@ -1,4 +1,4 @@
-# app.py
+# app.py - ПОЛНАЯ ВЕРСИЯ ДЛЯ НЕ-ПРОГРАММИСТОВ
 import streamlit as st
 import pandas as pd
 import random
@@ -7,554 +7,469 @@ import os
 import hashlib
 from datetime import datetime, timedelta
 from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
 # --- Настройки ---
 DATA_FILE = 'test_teoriya.xlsx'
 USERS_FILE = 'users.json'
 RESULTS_FILE = 'results.json'
 
-# --- Загрузка данных ---
+# --- Загрузка данных из Excel ---
 @st.cache_data
 def load_data():
     try:
         df = pd.read_excel(DATA_FILE, sheet_name='теория', engine='openpyxl')
     except Exception as e:
-        st.error(f"Ошибка загрузки Excel: {e}")
+        st.error(f"❌ Ошибка загрузки Excel: {e}")
         return []
-
+    
     questions = []
     for _, row in df.iterrows():
         if pd.isna(row['Правильный ответ']):
             continue
-
         options = []
         for i in range(1, 6):
             col = f'Вариант {i}'
             if col in row and pd.notna(row[col]):
                 options.append(str(row[col]).strip())
-
+        
         correct_text = str(row['Правильный ответ']).strip()
-
         try:
             correct_idx = options.index(correct_text) + 1
         except ValueError:
-            st.warning(f"Пропущен вопрос {row['Номер вопроса']}: правильный ответ не найден")
             continue
-
+            
         question = {
-            'num': row['Номер вопроса'],
-            'text': row['Текст вопроса'].strip(),
+            'num': str(row['Номер вопроса']),
+            'text': str(row['Текст вопроса']).strip(),
             'options': options,
             'correct': correct_idx,
-            'section': row['Раздел']
+            'section': str(row['Раздел']).strip()
         }
         questions.append(question)
-
     return questions
-
 
 # --- Управление пользователями ---
 def load_users():
     if not os.path.exists(USERS_FILE):
-        # Создаём файл с admin:123
-        default_users = {"admin": hashlib.sha256("123".encode()).hexdigest()}
+        default_users = {
+            "admin": {"hash": hashlib.sha256("admin123".encode()).hexdigest(), "is_active": True, "is_admin": True}
+        }
         save_users(default_users)
         return default_users
     try:
         with open(USERS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        st.error(f"Ошибка чтения users.json: {e}. Восстанавливаем админа.")
-        default_users = {"admin": hashlib.sha256("123".encode()).hexdigest()}
-        save_users(default_users)
-        return default_users
-
+    except:
+        return load_users()
 
 def save_users(users):
     with open(USERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
 
-
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
-
 
 def register_user(username, password):
     users = load_users()
     if username in users:
-        return False, "Логин занят"
-    users[username] = hash_password(password)
-    save_users(users)
-    return True, "Регистрация успешна!"
-
-
-# --- Сохранение результатов ---
-def save_result(user, score, total, correct_count, results, time_used):
-    result = {
-        'user': user,
-        'timestamp': datetime.now().isoformat(),
-        'score': score,
-        'total': total,
-        'correct': correct_count,
-        'time_used': str(time_used),
-        'results': results
+        return False, "❌ Логин уже занят"
+    users[username] = {
+        "hash": hash_password(password),
+        "is_active": False,  # 🔴 Требует подтверждения админа!
+        "is_admin": False,
+        "registered_at": datetime.now().isoformat()
     }
-    all_results = []
-    if os.path.exists(RESULTS_FILE):
-        try:
-            with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
-                all_results = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            st.warning("Файл results.json повреждён. Создаём новый.")
-    all_results.append(result)
-    with open(RESULTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(all_results, f, ensure_ascii=False, indent=2)
+    save_users(users)
+    return True, "✅ Регистрация отправлена. Ожидайте подтверждения администратора!"
 
+def login_user(username, password):
+    users = load_users()
+    if username not in users:
+        return False, "❌ Пользователь не найден"
+    user = users[username]
+    if user["hash"] != hash_password(password):
+        return False, "❌ Неверный пароль"
+    if not user.get("is_active", False) and not user.get("is_admin", False):
+        return False, "⏳ Аккаунт ожидает подтверждения администратора"
+    return True, "✅ Вход выполнен!"
 
-# --- Загрузка результатов ---
+# --- Расчет прогресса ---
+def calculate_mastery(username):
+    all_questions = load_data()
+    total_in_db = len(all_questions)
+    if total_in_db == 0:
+        return 0, 0, 0
+    
+    results = load_results()
+    mastered_question_nums = set()
+    
+    for session in results:
+        if session['user'] == username:
+            for res in session['results']:
+                if res['is_correct']:
+                    mastered_question_nums.add(res['num'])
+    
+    mastered_count = len(mastered_question_nums)
+    percent = round((mastered_count / total_in_db) * 100, 1) if total_in_db > 0 else 0
+    return mastered_count, total_in_db, percent
+
+# --- Генерация PDF ---
+def generate_pdf_report(username, session_data):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    elements.append(Paragraph(f"📊 Отчёт о тестировании", styles['Heading1']))
+    elements.append(Paragraph(f"Пользователь: {username}", styles['Normal']))
+    elements.append(Paragraph(f"Дата: {session_data['timestamp'][:16]}", styles['Normal']))
+    elements.append(Paragraph(f"Результат: {session_data['correct']}/{session_data['total']} ({session_data['score']:.1f}%)", styles['Normal']))
+    elements.append(Spacer(1, 20))
+    
+    wrong = [r for r in session_data['results'] if not r['is_correct']]
+    if wrong:
+        elements.append(Paragraph("❌ Работа над ошибками:", styles['Heading2']))
+        data = [['№', 'Вопрос', 'Ваш ответ', 'Правильный ответ']]
+        
+        questions = {q['num']: q for q in load_data()}
+        for res in wrong:
+            q = questions.get(res['num'], {})
+            user_ans = q['options'][res['answered']-1] if 0 < res['answered'] <= len(q.get('options', [])) else "Не выбран"
+            correct_ans = q['options'][q['correct']-1] if 0 < q.get('correct', 0) <= len(q.get('options', [])) else "Н/Д"
+            data.append([
+                res['num'],
+                (q.get('text', '')[:50] + "...") if len(q.get('text', '')) > 50 else q.get('text', ''),
+                user_ans[:35] + "..." if len(user_ans) > 35 else user_ans,
+                correct_ans[:35] + "..." if len(correct_ans) > 35 else correct_ans
+            ])
+        
+        table = Table(data, colWidths=[40, 180, 130, 130])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ]))
+        elements.append(table)
+    else:
+        elements.append(Paragraph("🎉 Ошибок нет! Отличный результат!", styles['Normal']))
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+# --- Результаты ---
 def load_results():
     if not os.path.exists(RESULTS_FILE):
         return []
     try:
         with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        st.warning("Ошибка чтения results.json. Возвращаем пустой список.")
+    except:
         return []
 
+def save_result(user, score, total, correct_count, results, time_used):
+    result = {
+        'user': user,
+        'timestamp': datetime.now().isoformat(),
+        'score': round(score, 2),
+        'total': total,
+        'correct': correct_count,
+        'time_used': str(time_used),
+        'results': results
+    }
+    all_results = load_results()
+    all_results.append(result)
+    with open(RESULTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(all_results, f, ensure_ascii=False, indent=2)
 
-# --- Анализ результатов ---
-def analyze_results():
-    results = load_results()
-    if not results:
-        st.info("Нет данных для анализа.")
-        return
-
-    stats = {}
-    section_stats = {}
-
-    for session in results:
-        for res in session['results']:
-            q_num = res['num']
-            sec = res['section']
-
-            if q_num not in stats:
-                stats[q_num] = {'total': 0, 'correct': 0}
-            if sec not in section_stats:
-                section_stats[sec] = {'total': 0, 'correct': 0}
-
-            stats[q_num]['total'] += 1
-            if res['is_correct']:
-                stats[q_num]['correct'] += 1
-
-            section_stats[sec]['total'] += 1
-            if res['is_correct']:
-                section_stats[sec]['correct'] += 1
-
-    st.subheader("🔥 Самые сложные вопросы (<70%)")
-    difficult = []
-    for q, s in stats.items():
-        perc = s['correct'] / s['total'] * 100
-        if perc < 70:
-            difficult.append((q, perc, s['total']))
-    difficult.sort(key=lambda x: x[1])
-    if difficult:
-        df_diff = pd.DataFrame(difficult, columns=["Номер", "Правильно, %", "Всего ответов"])
-        st.dataframe(df_diff, use_container_width=True)
-    else:
-        st.write("Нет особенно сложных вопросов.")
-
-    st.subheader("📊 Эффективность по разделам")
-    df_sec = []
-    for sec, s in section_stats.items():
-        perc = s['correct'] / s['total'] * 100
-        df_sec.append({"Раздел": sec, "Процент": perc, "Правильно": s['correct'], "Всего": s['total']})
-    df_sec = pd.DataFrame(df_sec)
-    st.bar_chart(df_sec.set_index("Раздел")["Процент"])
-    st.dataframe(df_sec, use_container_width=True)
-
-
-# --- Анализ по логинам ---
-def analyze_by_user():
-    st.subheader("🔍 Анализ по логинам")
-    results = load_results()
-    if not results:
-        st.info("Нет результатов тестирования.")
-        return
-
-    users = sorted(list(set(r['user'] for r in results)))
-    selected_user = st.selectbox("Выберите пользователя", users)
-
-    user_results = [r for r in results if r['user'] == selected_user]
-    st.write(f"**Результаты пользователя: {selected_user}**")
-
-    for i, r in enumerate(user_results, 1):
-        st.markdown(f"### Попытка {i}")
-        st.write(f"📅 Дата: {r['timestamp'][:16]}")
-        st.write(f"📊 Результат: **{r['correct']}/{r['total']} ({r['score']:.1f}%)**")
-        st.write(f"⏱️ Время: {r['time_used']}")
-
-        with st.expander("Разбор ответов"):
-            for res in r['results']:
-                status = "✅" if res['is_correct'] else "❌"
-                st.markdown(f"{status} **{res['num']}**: {res['section']}")
-
-
-# --- Отбор по 10 вопросов из каждого раздела ---
-def get_sampled_questions(questions):
-    by_section = {}
-    for q in questions:
-        sec = q['section']
-        if sec not in by_section:
-            by_section[sec] = []
-        by_section[sec].append(q)
-
-    sampled = []
-    for sec, qs in by_section.items():
-        selected = random.sample(qs, min(10, len(qs)))
-        sampled.extend(selected)
-    random.shuffle(sampled)
-    return sampled
-
-
-# --- Экспорт в Excel ---
-def export_results_to_excel():
-    results = load_results()
-    if not results:
-        st.warning("Нет результатов для экспорта.")
-        return None
-
-    data = []
-    for session in results:
-        for res in session['results']:
-            data.append({
-                'Пользователь': session['user'],
-                'Дата': session['timestamp'],
-                'Номер вопроса': res['num'],
-                'Правильно': 'Да' if res['is_correct'] else 'Нет',
-                'Раздел': res['section']
-            })
-
-    df = pd.DataFrame(data)
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Результаты')
-    return output.getvalue()
-
-
-# --- Загрузка нового файла ---
-def upload_new_data():
-    st.subheader("📤 Обновить базу вопросов")
-    uploaded = st.file_uploader("Загрузите новый Excel-файл", type=["xlsx"])
-    if uploaded:
-        with open(DATA_FILE, "wb") as f:
-            f.write(uploaded.read())
-        st.success("Файл обновлён! Перезапустите приложение.")
-        st.cache_data.clear()
-
-
-# --- Редактор вопросов ---
-def edit_questions():
-    st.subheader("✏️ Редактор вопросов")
-    questions = load_data()
-    df = pd.DataFrame(questions)
-    st.data_editor(df, num_rows="dynamic", key="edited_questions")
-
-
-# --- Админ-панель ---
-def admin_panel():
-    st.title("🔐 Админ-панель")
-
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "Пользователи", "Результаты", "Анализ", "Экспорт", "Вопросы", "Анализ по логинам"
-    ])
-
-    with tab1:
-        st.subheader("📋 Пользователи")
-
-        users = load_users()
-        if not users:
-            st.info("Нет зарегистрированных пользователей")
-        else:
-            for user in users:
-                col1, col2 = st.columns([4, 1])
-                col1.write(f"👤 **{user}**")
-                if user != "admin":
-                    if col2.button("🗑️ Удалить", key=f"del_user_{user}"):
-                        del users[user]
-                        save_users(users)
-                        st.success(f"Пользователь `{user}` удалён.")
-                        st.rerun()
-                else:
-                    col2.write("🔐")
-
-    with tab2:
-        st.subheader("📊 Все результаты")
-        results = load_results()
-        if not results:
-            st.info("Нет результатов")
-        else:
-            df = pd.DataFrame([
-                {
-                    'Пользователь': r['user'],
-                    'Дата': r['timestamp'][:16],
-                    'Результат': f"{r['correct']}/{r['total']} ({r['score']:.1f}%)",
-                    'Время': r['time_used']
-                } for r in results
-            ])
-            st.dataframe(df, use_container_width=True)
-
-    with tab3:
-        analyze_results()
-
-    with tab4:
-        st.subheader("💾 Экспорт данных")
-        excel_data = export_results_to_excel()
-        if excel_data is not None:
-            st.download_button(
-                label="Скачать Excel",
-                data=excel_data,
-                file_name=f"результаты_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.info("📊 Нет данных для экспорта в Excel")
-
-    with tab5:
-        upload_new_data()
-        edit_questions()
-
-    with tab6:
-        analyze_by_user()
-
-
-# --- Главное приложение ---
-def main():
-    st.set_page_config(
-        page_title="Тест по оценке недвижимости",
-        page_icon="🏢",
-        layout="centered"
-    )
-
-    # Логотип и заголовок
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=120)
-        else:
-            st.markdown("🏢", unsafe_allow_html=True)  # Резервная иконка
-    with col2:
-        st.title("Центр кадастровой оценки")
-        st.markdown("Аттестация и обучение")
-    st.markdown("---")
-
-    if 'logged_in' not in st.session_state:
-        st.session_state.update({
-            'logged_in': False,
-            'user': None,
-            'test_started': False,
-            'start_time': None,
-            'end_time': None,
-            'test_questions': [],
-            'answers': {},
-            'timer_enabled': True
-        })
-
-    if not st.session_state.logged_in:
-        show_auth()
-    else:
-        if st.session_state.user == "admin":
-            show_admin_sidebar()
-        test_interface()
-
-
-# --- Сайдбар для админа ---
-def show_admin_sidebar():
-    st.sidebar.title("Админ")
-    if st.sidebar.button("🔐 Админ-панель"):
-        st.session_state.page = "admin"
-        st.rerun()
-
+# --- Отбор вопросов ---
+def get_sampled_questions(questions, mode):
+    if mode == "По 10 из каждого раздела":
+        by_section = {}
+        for q in questions:
+            sec = q['section']
+            if sec not in by_section:
+                by_section[sec] = []
+            by_section[sec].append(q)
+        sampled = []
+        for sec, qs in by_section.items():
+            selected = random.sample(qs, min(10, len(qs)))
+            sampled.extend(selected)
+        random.shuffle(sampled)
+        return sampled
+    return questions.copy()
 
 # --- Авторизация ---
 def show_auth():
     tab1, tab2 = st.tabs(["🔐 Вход", "📝 Регистрация"])
-
     with tab1:
-        login()
-    with tab2:
-        register()
-
-
-def login():
-    st.header("Авторизация")
-    login_input = st.text_input("Логин", key="login_username")
-    password = st.text_input("Пароль", type="password", key="login_password")
-
-    if st.button("Войти", key="login_button"):
-        users = load_users()
-        hashed = hash_password(password)
-        if login_input in users and users[login_input] == hashed:
-            st.session_state.logged_in = True
-            st.session_state.user = login_input
-            st.success(f"Добро пожаловать, {login_input}!")
-            st.rerun()
-        else:
-            st.error("Неверный логин или пароль")
-
-
-def register():
-    st.header("Регистрация")
-    new_login = st.text_input("Логин", key="register_username")
-    new_password = st.text_input("Пароль", type="password", key="register_password")
-    confirm_password = st.text_input("Подтвердите пароль", type="password", key="register_confirm_password")
-
-    if st.button("Зарегистрироваться", key="register_submit"):
-        if new_password != confirm_password:
-            st.error("Пароли не совпадают")
-        elif len(new_password) < 4:
-            st.error("Пароль слишком короткий")
-        elif len(new_login) < 3:
-            st.error("Логин слишком короткий")
-        else:
-            success, msg = register_user(new_login, new_password)
+        username = st.text_input("Логин", key="login_user")
+        password = st.text_input("Пароль", type="password", key="login_pass")
+        if st.button("Войти", key="btn_login"):
+            success, msg = login_user(username, password)
             if success:
-                st.success(msg)
+                st.session_state.logged_in = True
+                st.session_state.user = username
+                st.session_state.is_admin = load_users().get(username, {}).get('is_admin', False)
+                st.rerun()
             else:
                 st.error(msg)
+    
+    with tab2:
+        new_user = st.text_input("Придумайте логин", key="reg_user")
+        new_pass = st.text_input("Пароль", type="password", key="reg_pass")
+        confirm = st.text_input("Подтвердите пароль", type="password", key="reg_confirm")
+        if st.button("Зарегистрироваться", key="btn_reg"):
+            if new_pass != confirm:
+                st.error("❌ Пароли не совпадают")
+            elif len(new_pass) < 4:
+                st.error("❌ Пароль слишком короткий (минимум 4 символа)")
+            else:
+                success, msg = register_user(new_user, new_pass)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
+# --- Админ-панель ---
+def admin_user_management():
+    st.subheader("👥 Подтверждение пользователей")
+    users = load_users()
+    pending = {u: d for u, d in users.items() if not d.get('is_active') and not d.get('is_admin')}
+    
+    if not pending:
+        st.info("✅ Нет пользователей, ожидающих подтверждения")
+    else:
+        for username, data in pending.items():
+            col1, col2, col3 = st.columns([3, 2, 1])
+            col1.write(f"👤 **{username}**")
+            col2.write(f"📅 {data.get('registered_at', 'N/A')[:16]}")
+            if col3.button("✅ Подтвердить", key=f"approve_{username}"):
+                users[username]['is_active'] = True
+                save_users(users)
+                st.success(f"{username} активирован!")
+                st.rerun()
+            if col3.button("🗑️ Удалить", key=f"reject_{username}"):
+                del users[username]
+                save_users(users)
+                st.warning(f"{username} удалён")
+                st.rerun()
+
+# --- Личный кабинет ---
+def user_dashboard():
+    username = st.session_state.user
+    mastered, total, percent = calculate_mastery(username)
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📚 Освоено вопросов", f"{mastered}/{total}")
+    col2.metric("🎯 Доля освоения", f"{percent}%")
+    col3.metric("📊 Всего тестов", len([r for r in load_results() if r['user'] == username]))
+    
+    st.progress(percent / 100)
+    
+    st.subheader("📜 История тестов")
+    history = [r for r in load_results() if r['user'] == username]
+    if history:
+        for i, session in enumerate(reversed(history), 1):
+            with st.expander(f"Тест #{i} — {session['timestamp'][:16]} — {session['correct']}/{session['total']} ({session['score']}%)"):
+                st.write(f"⏱️ Время: {session['time_used']}")
+                pdf_data = generate_pdf_report(username, session)
+                st.download_button(
+                    label="📄 Скачать PDF с ошибками",
+                    data=pdf_data,
+                    file_name=f"report_{username}_{session['timestamp'][:10]}.pdf",
+                    mime="application/pdf"
+                )
+    else:
+        st.info("📭 Пока нет пройденных тестов")
 
 # --- Интерфейс теста ---
-def test_interface():
-    if st.session_state.get('page') == 'admin':
-        admin_panel()
-        if st.button("◀️ Вернуться к тесту"):
-            st.session_state.page = None
-            st.rerun()
-        return
-
+def run_test():
+    st.subheader("🧪 Настройки тестирования")
+    
     questions = load_data()
     if not questions:
-        st.error("Не удалось загрузить вопросы.")
+        st.error("❌ Не удалось загрузить вопросы. Проверьте файл test_teoriya.xlsx")
         return
-
-    st.sidebar.write(f"👤 {st.session_state.user}")
-
-    mode = st.sidebar.radio("Режим", ["Все вопросы", "По 10 из каждого раздела"], key="mode_select")
-    st.sidebar.subheader("⏱️ Таймер")
-    timer_enabled = st.sidebar.checkbox("Включить таймер", value=True, key="timer_checkbox")
-    duration = 30
-    if timer_enabled:
-        duration = st.sidebar.slider("Длительность (мин)", 10, 120, 30, key="timer_slider")
-    else:
-        st.sidebar.info("Таймер отключен")
-
-    if st.sidebar.button("🚀 Начать тест", key="start_test"):
-        st.session_state.test_started = True
-        st.session_state.timer_enabled = timer_enabled
-        if timer_enabled:
-            st.session_state.start_time = datetime.now()
-            st.session_state.end_time = datetime.now() + timedelta(minutes=duration)
+    
+    # Выбор режима
+    q_mode = st.radio("Количество вопросов:", ["Все вопросы", "По 10 из каждого раздела"], horizontal=True)
+    timer_mode = st.checkbox("⏱️ Тест на время")
+    time_limit = 30
+    if timer_mode:
+        time_limit = st.slider("Лимит времени (минут):", 5, 120, 30)
+    
+    if st.button("🚀 Начать тест", type="primary"):
+        # Формируем вопросы
+        if q_mode == "По 10 из каждого раздела":
+            test_questions = get_sampled_questions(questions, "По 10 из каждого раздела")
         else:
-            st.session_state.start_time = None
-            st.session_state.end_time = None
-        st.session_state.test_questions = get_sampled_questions(questions) if mode == "По 10 из каждого раздела" else questions.copy()
-        st.session_state.answers = {}
-        st.session_state.page = None
+            test_questions = questions.copy()
+            random.shuffle(test_questions)
+        
+        # Сохраняем в сессию
+        st.session_state.test_questions = test_questions
+        st.session_state.current_index = 0
+        st.session_state.answers = []
+        st.session_state.test_start_time = datetime.now()
+        st.session_state.timer_mode = timer_mode
+        st.session_state.time_limit = time_limit
+        st.session_state.in_test = True
         st.rerun()
+    
+    # Если тест уже идёт
+    if st.session_state.get('in_test', False):
+        test_questions = st.session_state.test_questions
+        idx = st.session_state.current_index
+        
+        # Таймер
+        if st.session_state.timer_mode:
+            elapsed = datetime.now() - st.session_state.test_start_time
+            remaining = st.session_state.time_limit * 60 - elapsed.total_seconds()
+            if remaining <= 0:
+                st.warning("⏰ Время вышло! Тест завершён автоматически.")
+                finish_test()
+                return
+            mins, secs = divmod(int(remaining), 60)
+            st.metric("⏱️ Осталось времени", f"{mins}:{secs:02d}")
+            if remaining < 300:  # меньше 5 минут
+                st.warning("⚠️ Осталось мало времени!")
+        
+        # Вопрос
+        q = test_questions[idx]
+        st.progress((idx + 1) / len(test_questions))
+        st.write(f"### Вопрос {idx + 1} из {len(test_questions)}")
+        st.write(f"**{q['num']}**. {q['text']}")
+        
+        # Варианты ответов
+        answer = st.radio("Выберите ответ:", q['options'], key=f"q_{idx}", index=None)
+        
+        col1, col2 = st.columns(2)
+        if idx > 0 and col1.button("⬅️ Назад"):
+            st.session_state.current_index -= 1
+            st.rerun()
+        
+        if idx < len(test_questions) - 1:
+            if col2.button("Далее ➡️", type="primary"):
+                if answer:
+                    selected_idx = q['options'].index(answer) + 1
+                    st.session_state.answers.append({
+                        'num': q['num'],
+                        'answered': selected_idx,
+                        'is_correct': (selected_idx == q['correct'])
+                    })
+                    st.session_state.current_index += 1
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Выберите вариант ответа")
+        else:
+            if col2.button("✅ Завершить тест", type="primary"):
+                if answer:
+                    selected_idx = q['options'].index(answer) + 1
+                    st.session_state.answers.append({
+                        'num': q['num'],
+                        'answered': selected_idx,
+                        'is_correct': (selected_idx == q['correct'])
+                    })
+                    finish_test()
+                else:
+                    st.warning("⚠️ Выберите вариант ответа")
 
-    if st.sidebar.button("📊 Анализ результатов", key="analyze_results"):
-        analyze_results()
-
-    if st.sidebar.button("🚪 Выйти", key="logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-
-    if st.session_state.test_started:
-        run_test_with_timer()
-    else:
-        st.info("Выберите режим и нажмите «Начать тест»")
-
-
-# --- Прохождение теста с таймером ---
-def run_test_with_timer():
-    st.header(f"📝 Тест: {len(st.session_state.test_questions)} вопросов")
-
-    if st.session_state.timer_enabled:
-        time_left = st.session_state.end_time - datetime.now()
-        if time_left.total_seconds() <= 0:
-            st.warning("⏰ Время вышло!")
-            finish_test()
-            return
-
-        mins, secs = divmod(time_left.seconds, 60)
-        st.info(f"Осталось времени: **{mins:02d}:{secs:02d}**")
-
-        st.markdown("""
-        <script>
-        setTimeout(function() {
-            window.location.reload();
-        }, 1000);
-        </script>
-        """, unsafe_allow_html=True)
-
-    user_answers = st.session_state.answers
-    for i, q in enumerate(st.session_state.test_questions):
-        st.markdown(f"### {i+1}. {q['text']}")
-        options = [f"{idx}. {opt}" for idx, opt in enumerate(q['options'], 1)]
-        choice = st.radio("Выберите ответ:", options, index=None, key=f"q_{q['num']}", label_visibility="collapsed")
-        user_answers[q['num']] = choice
-
-    if st.button("✅ Завершить тест", key="finish_test"):
-        finish_test()
-
-
-# --- Завершение теста ---
 def finish_test():
-    st.session_state.test_started = False
-    test_questions = st.session_state.test_questions
-    user_answers = st.session_state.answers
+    username = st.session_state.user
+    answers = st.session_state.answers
+    start_time = st.session_state.test_start_time
+    time_used = datetime.now() - start_time
+    
+    correct_count = sum(1 for a in answers if a['is_correct'])
+    total = len(answers)
+    score = round((correct_count / total) * 100, 1) if total > 0 else 0
+    
+    save_result(username, score, total, correct_count, answers, time_used)
+    
+    st.success(f"🎉 Тест завершён! Результат: {correct_count}/{total} ({score}%)")
+    
+    # Показать ошибки
+    wrong = [a for a in answers if not a['is_correct']]
+    if wrong:
+        st.subheader("❌ Ошибки:")
+        questions = {q['num']: q for q in load_data()}
+        for a in wrong:
+            q = questions.get(a['num'], {})
+            st.write(f"**{a['num']}**. {q.get('text', '')[:100]}...")
+            st.write(f"   Ваш ответ: вариант {a['answered']} | Правильный: вариант {q.get('correct', '?')}")
+    
+    # Кнопка скачивания PDF
+    session_data = {
+        'user': username,
+        'timestamp': datetime.now().isoformat(),
+        'score': score,
+        'total': total,
+        'correct': correct_count,
+        'time_used': str(time_used),
+        'results': answers
+    }
+    pdf_data = generate_pdf_report(username, session_data)
+    st.download_button(
+        label="📄 Скачать полный отчёт (PDF)",
+        data=pdf_data,
+        file_name=f"report_{username}_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+        mime="application/pdf"
+    )
+    
+    # Сброс
+    st.session_state.in_test = False
+    st.session_state.test_questions = []
+    st.session_state.answers = []
+    
+    if st.button("🏠 Вернуться в личный кабинет"):
+        st.rerun()
 
-    correct_count = 0
-    results = []
-
-    for q in test_questions:
-        answer_str = user_answers.get(q['num'])
-        answer_idx = int(answer_str.split('.')[0]) if answer_str else -1
-        is_correct = (answer_idx == q['correct'])
-        if is_correct:
-            correct_count += 1
-
-        results.append({
-            'num': q['num'],
-            'answered': answer_idx,
-            'correct': q['correct'],
-            'is_correct': is_correct,
-            'section': q['section']
-        })
-
-    total = len(test_questions)
-    score = correct_count / total * 100 if total > 0 else 0
-    time_used = datetime.now() - st.session_state.start_time if st.session_state.start_time else timedelta(seconds=0)
-
-    save_result(st.session_state.user, score, total, correct_count, results, time_used)
-
-    st.success(f"✅ Готово! {correct_count}/{total} ({score:.1f}%)")
-    if st.session_state.timer_enabled:
-        st.metric("Затрачено времени", str(time_used).split('.')[0])
-
-    st.subheader("📋 Разбор ответов")
-    for q in test_questions:
-        answer_str = user_answers.get(q['num'])
-        answer_idx = int(answer_str.split('.')[0]) if answer_str else -1
-        is_correct = (answer_idx == q['correct'])
-        status = "✅" if is_correct else "❌"
-        st.markdown(f"{status} **{q['num']}**: {q['text']}")
-        if not is_correct:
-            corr = q['options'][q['correct']-1]
-            st.caption(f"Правильно: {q['correct']}. {corr}")
-
+# --- Главное приложение ---
+def main():
+    st.set_page_config(page_title="🏢 Тест: Оценка недвижимости", page_icon="📚", layout="wide")
+    
+    if 'logged_in' not in st.session_state:
+        st.session_state.update(logged_in=False, user=None, is_admin=False, in_test=False)
+    
+    st.title("🏢 Тестирование: Оценка недвижимости")
+    
+    if not st.session_state.logged_in:
+        show_auth()
+    else:
+        # Боковая панель
+        with st.sidebar:
+            st.write(f"👤 **{st.session_state.user}**")
+            if st.session_state.is_admin:
+                st.write("🔑 Роль: Администратор")
+            if st.button("🚪 Выйти"):
+                for k in list(st.session_state.keys()):
+                    if k not in ['logged_in', 'user', 'is_admin']:
+                        del st.session_state[k]
+                st.session_state.logged_in = False
+                st.rerun()
+        
+        # Вкладки
+        if st.session_state.is_admin:
+            tab1, tab2, tab3 = st.tabs(["🧪 Пройти тест", "🔐 Админ-панель", "📊 Мой прогресс"])
+            with tab1:
+                run_test()
+            with tab2:
+                admin_user_management()
+            with tab3:
+                user_dashboard()
+        else:
+            tab1, tab2 = st.tabs(["🧪 Пройти тест", "📊 Мой прогресс"])
+            with tab1:
+                run_test()
+            with tab2:
+                user_dashboard()
 
 if __name__ == "__main__":
     main()
