@@ -189,18 +189,42 @@ def calculate_mastery(username):
     mastered_question_nums = set()
     section_stats = {}
     
-    for session in results:
-        if session['user'] == username:
-            for res in session['results']:
-                if res['is_correct']:
-                    mastered_question_nums.add(res['num'])
-                    q = next((q for q in all_questions if q['num'] == res['num']), None)
-                    if q:
-                        sec = q['section']
-                        if sec not in section_stats:
-                            section_stats[sec] = {'correct': 0, 'total': 0}
-                        section_stats[sec]['correct'] += 1
+    # Безопасная обработка результатов
+    if not results or not isinstance(results, list):
+        results = []
     
+    for test_session in results:
+        try:
+            # Проверяем, что это словарь и есть поле user
+            if not isinstance(test_session, dict):
+                continue
+            if test_session.get('user') != username:
+                continue
+            
+            # Обрабатываем результаты теста
+            test_results = test_session.get('results', [])
+            if not isinstance(test_results, list):
+                continue
+                
+            for res in test_results:
+                if not isinstance(res, dict):
+                    continue
+                if res.get('is_correct'):
+                    num = res.get('num')
+                    if num:
+                        mastered_question_nums.add(num)
+                        # Статистика по разделам
+                        q = next((q for q in all_questions if q['num'] == num), None)
+                        if q:
+                            sec = q['section']
+                            if sec not in section_stats:
+                                section_stats[sec] = {'correct': 0, 'total': 0}
+                            section_stats[sec]['correct'] += 1
+        except Exception as e:
+            print(f"Ошибка при обработке теста: {e}")
+            continue
+    
+    # Подсчёт общего количества вопросов по разделам
     for q in all_questions:
         sec = q['section']
         if sec not in section_stats:
@@ -210,6 +234,7 @@ def calculate_mastery(username):
     mastered_count = len(mastered_question_nums)
     percent = round((mastered_count / total_in_db) * 100, 1) if total_in_db > 0 else 0
     
+    # Прогресс по разделам в процентах
     section_progress = []
     for sec, stats in section_stats.items():
         sec_percent = round((stats['correct'] / stats['total']) * 100, 1) if stats['total'] > 0 else 0
