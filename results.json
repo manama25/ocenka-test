@@ -1,1 +1,20 @@
-[]
+{
+  "admin": {
+    "hash": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+    "fullname": "Администратор",
+    "is_active": true,
+    "is_admin": true,
+    "registered_at": "2026-03-18T13:54:14.267530",
+    "last_login": "2026-03-18T13:58:00.720944",
+    "tests_taken": 0
+  },
+  "test": {
+    "hash": "ecd71870d1963316a97e3ac3408c9835ad8cf0f3c1bc703527c30265534f75ae",
+    "fullname": "Иванов Иван Иванович",
+    "is_active": true,
+    "is_admin": false,
+    "registered_at": "2026-03-18T13:55:33.802577",
+    "last_login": "2026-03-18T13:56:22.939677",
+    "tests_taken": 1
+  }
+}
